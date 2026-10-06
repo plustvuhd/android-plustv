@@ -1,4 +1,7 @@
 plugins { id 'com.android.application' }
+// Só as arquiteturas das TVs/celulares/boxes (ARM) — o libVLC traz uma cópia por arquitetura e é o que deixava o APK enorme.
+// Para o emulador do PC, gere com -Pabis=armeabi-v7a,arm64-v8a,x86_64 (opção no Actions).
+def abiList = (project.findProperty('abis') ?: 'armeabi-v7a,arm64-v8a').toString().split(',')
 android {
     namespace 'com.plustv.player'
     compileSdk 34
@@ -8,6 +11,7 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
+        ndk { abiFilters(*abiList) }
     }
     signingConfigs {
         release {
