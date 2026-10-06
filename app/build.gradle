@@ -1,0 +1,21 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.plustv.player'
+    compileSdk 34
+    defaultConfig {
+        applicationId "com.plustv.player"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+    signingConfigs {
+        release {
+            // Chave incluída no projeto (app/plustv.keystore) para o APK sempre ter a mesma assinatura e poder ser atualizado por cima.
+            // Para a Play Store/Amazon, gere sua própria chave e troque estes valores (veja LEIA-ME).
+            storeFile file("plustv.keystore"); storePassword "plustv123"; keyAlias "plustv"; keyPassword "plustv123"
+        }
+    }
+    buildTypes { release { signingConfig signingConfigs.release; minifyEnabled false } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+}
