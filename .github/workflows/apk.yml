@@ -6,6 +6,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Baixar o icone do app (logo do Web Player)
+        run: |
+          PANEL=$(curl -fsSL https://raw.githubusercontent.com/plustvuhd/plustv-config/main/plustv.json | python3 -c "import sys,json;print(json.load(sys.stdin)['panel'].rstrip('/'))" || true)
+          if [ -z "$PANEL" ]; then PANEL=https://konnex.business; fi
+          echo "Painel: $PANEL"
+          OWNER=""
+          Q=""
+          if [ -n "$OWNER" ]; then Q="?owner=$OWNER"; fi
+          curl -fsSL "$PANEL/api/public/player-icon/512$Q" -o /tmp/icon.png || true
+          curl -fsSL "$PANEL/api/public/player-icon/banner$Q" -o /tmp/banner.png || true
+          if [ -s /tmp/icon.png ] && [ "$(stat -c%s /tmp/icon.png)" -gt 1000 ]; then cp /tmp/icon.png app/src/main/res/mipmap-xxhdpi/ic_launcher.png; echo "icone atualizado"; fi
+          if [ -s /tmp/banner.png ] && [ "$(stat -c%s /tmp/banner.png)" -gt 1000 ]; then cp /tmp/banner.png app/src/main/res/drawable/banner.png; echo "banner atualizado"; fi
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
