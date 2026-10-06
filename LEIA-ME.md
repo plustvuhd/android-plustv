@@ -30,3 +30,19 @@ Quem usa pelo app conta como ativo de TV do mês (junto com Roku/LG/Samsung/VIDA
 - Atualizações do visual/funções do player acontecem no painel; o APK só muda se você trocar o endereço padrão ou o ícone.
 - A chave de assinatura inclusa é para instalar direto; use sua própria para as lojas.
 - Não foi possível testar em TV/box real nem compilar neste ambiente.
+
+## Players embutidos (v1.1)
+O app agora traz **ExoPlayer** e **VLC** dentro dele (nada de abrir outro aplicativo). Em Configurações > Mudar player do Web Player:
+Automático (tenta um e troca sozinho para o outro se falhar), ExoPlayer, VLC ou Player integrado (navegador).
+No player nativo: OK pausa/continua, setas esquerda/direita pulam 10 s (segurando, 30 s), Voltar fecha e salva onde parou.
+O APK fica maior (uns 60–100 MB) por causa do VLC. Ao atualizar, instale por cima do APK anterior (mesma assinatura).
+
+## Logo do app (v1.2)
+- Ao abrir, o app mostra a logo do Web Player na tela de carregamento (a logo do Web Player, sobre um fundo escuro com as cores do player). Ela é guardada no aparelho para aparecer na hora nas próximas aberturas.
+- O ícone na lista de apps e o banner da Android TV ficam dentro do APK. Para trocar: no admin do Web Player (seção "Ícones prontos para os apps das TVs") baixe "Android / geral 512" e "Android TV banner", substitua no projeto
+  `app/src/main/res/mipmap-xxhdpi/ic_launcher.png` e `app/src/main/res/drawable/banner.png` (mesmos nomes) e gere o APK de novo.
+
+## Ícone do app antes de abrir (v1.3)
+O workflow "Gerar APK" agora baixa sozinho o ícone e o banner do painel (a logo do Web Player, sobre um fundo escuro com as cores do player) e coloca no APK.
+Para trocar o ícone: mude a logo do Web Player no admin, salve, e rode Actions > Gerar APK de novo. Instale o APK novo por cima.
+(Se o ícone antigo continuar aparecendo, reinicie a tela inicial da TV ou desinstale e instale de novo: alguns launchers guardam o ícone.)
