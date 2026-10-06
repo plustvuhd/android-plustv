@@ -1,7 +1,9 @@
 package com.plustv.player;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.webkit.JavascriptInterface;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -41,11 +43,40 @@ public class MainActivity extends Activity {
 
     private FrameLayout root;
     private WebView web;
-    private TextView splash;
+    private LinearLayout splash;
+    private android.widget.ImageView splashImg;
     private LinearLayout err;
     private View customView;
     private WebChromeClient.CustomViewCallback customCb;
     private boolean pageOk = false;
+    private boolean nativePlaying = false;
+    private static final int REQ_PLAY = 77;
+
+    /** Ponte para o site: o Web Player chama PlusTVNative.play(json) para tocar com ExoPlayer/VLC embutidos. */
+    private class Bridge {
+        @JavascriptInterface public boolean ok() { return true; }
+        @JavascriptInterface public void play(final String json) {
+            runOnUiThread(() -> {
+                Intent i = new Intent(MainActivity.this, PlayerActivity.class);
+                i.putExtra("json", json);
+                nativePlaying = true;
+                startActivityForResult(i, REQ_PLAY);
+            });
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != REQ_PLAY) return;
+        nativePlaying = false;
+        long pos = data != null ? data.getLongExtra("pos", 0) : 0;
+        long dur = data != null ? data.getLongExtra("dur", 0) : 0;
+        boolean ended = data != null && data.getBooleanExtra("ended", false);
+        boolean err = data == null || data.getBooleanExtra("err", false);
+        web.evaluateJavascript("window.__wpNativeEnd&&window.__wpNativeEnd({pos:" + pos + ",dur:" + dur + ",ended:" + ended + ",err:" + err + "})", null);
+        web.requestFocus();
+    }
 
     @Override
     protected void onCreate(Bundle b) {
@@ -67,6 +98,7 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         s.setUserAgentString(s.getUserAgentString() + " PlusTVApp/1.0");
+        web.addJavascriptInterface(new Bridge(), "PlusTVNative");
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
         cm.setAcceptThirdPartyCookies(web, true);
@@ -77,6 +109,15 @@ public class MainActivity extends Activity {
             }
             @Override public void onReceivedError(WebView v, android.webkit.WebResourceRequest r, android.webkit.WebResourceError e) {
                 if (r.isForMainFrame() && !pageOk) showError();
+            }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, android.webkit.WebResourceRequest r) {
+                String u = r.getUrl().toString();
+                if (u.startsWith("http://") || u.startsWith("https://")) return false;
+                try {
+                    Intent it = u.startsWith("intent:") ? Intent.parseUri(u, Intent.URI_INTENT_SCHEME) : new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(u));
+                    startActivity(it);
+                } catch (Exception ignored) {}
+                return true; // nunca deixa o WebView mostrar a tela preta de esquema desconhecido
             }
             @Override public boolean onRenderProcessGone(WebView v, RenderProcessGoneDetail d) { recreate(); return true; }
         });
@@ -89,12 +130,26 @@ public class MainActivity extends Activity {
             @Override public void onHideCustomView() { hideCustom(); }
         });
 
-        splash = new TextView(this);
-        splash.setText("Carregando...");
-        splash.setTextColor(Color.parseColor("#cfc8f0"));
-        splash.setTextSize(24);
+        splash = new LinearLayout(this);
+        splash.setOrientation(LinearLayout.VERTICAL);
         splash.setGravity(Gravity.CENTER);
+        splashImg = new android.widget.ImageView(this);
+        splashImg.setAdjustViewBounds(true);
+        splashImg.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        splash.addView(splashImg, new LinearLayout.LayoutParams(360, 360));
+        TextView st = new TextView(this);
+        st.setText("Carregando...");
+        st.setTextColor(Color.parseColor("#cfc8f0"));
+        st.setTextSize(24);
+        st.setGravity(Gravity.CENTER);
+        st.setPadding(0, 24, 0, 0);
+        splash.addView(st);
         root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
+        // Mostra na hora a logo da última abertura (guardada no aparelho)
+        try {
+            android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(new java.io.File(getCacheDir(), "logo.png").getAbsolutePath());
+            if (bmp != null) splashImg.setImageBitmap(bmp);
+        } catch (Exception ignored) {}
 
         err = new LinearLayout(this);
         err.setOrientation(LinearLayout.VERTICAL);
@@ -176,12 +231,30 @@ public class MainActivity extends Activity {
             for (String p : list) {
                 if (alive(p)) {
                     sp.edit().putString("panel", p).apply();
+                    fetchLogo(p);
                     final String url = p + "/player" + (OWNER.isEmpty() ? "" : "/" + OWNER) + "?tv=android";
                     runOnUiThread(() -> web.loadUrl(url));
                     return;
                 }
             }
             runOnUiThread(this::showError);
+        }).start();
+    }
+
+    /** Baixa a logo do app instalado (definida no admin do Web Player) e guarda para as próximas aberturas. */
+    private void fetchLogo(String panel) {
+        new Thread(() -> {
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(panel + "/api/public/player-icon/512" + (OWNER.isEmpty() ? "" : "?owner=" + OWNER)).openConnection();
+                c.setConnectTimeout(6000); c.setReadTimeout(8000);
+                final android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(c.getInputStream());
+                c.disconnect();
+                if (bmp == null) return;
+                try (java.io.FileOutputStream fo = new java.io.FileOutputStream(new java.io.File(getCacheDir(), "logo.png"))) {
+                    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fo);
+                }
+                runOnUiThread(() -> splashImg.setImageBitmap(bmp));
+            } catch (Exception ignored) {}
         }).start();
     }
 
@@ -220,7 +293,7 @@ public class MainActivity extends Activity {
         return super.dispatchKeyEvent(ev);
     }
 
-    @Override protected void onPause() { super.onPause(); CookieManager.getInstance().flush(); web.onPause(); }
+    @Override protected void onPause() { super.onPause(); CookieManager.getInstance().flush(); if (!nativePlaying) web.onPause(); }
     @Override protected void onResume() { super.onResume(); web.onResume(); }
     @Override protected void onDestroy() { web.destroy(); super.onDestroy(); }
 }

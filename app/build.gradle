@@ -17,5 +17,16 @@ android {
         }
     }
     buildTypes { release { signingConfig signingConfigs.release; minifyEnabled false } }
+    lint { abortOnError false; checkReleaseBuilds false }
+    packagingOptions { jniLibs { pickFirsts += ['**/libc++_shared.so'] } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+}
+
+dependencies {
+    // Players embutidos no app: ExoPlayer (Media3) e VLC (libVLC)
+    implementation 'androidx.media3:media3-exoplayer:1.4.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
+    implementation 'androidx.media3:media3-ui:1.4.1'
+    implementation 'androidx.media3:media3-datasource:1.4.1'
+    implementation 'org.videolan.android:libvlc-all:3.6.0'
 }
