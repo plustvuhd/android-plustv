@@ -54,7 +54,7 @@ public class PlayerActivity extends Activity {
     private ExoPlayer exo;
     private LibVLC libVlc;
     private MediaPlayer vlc;
-    private int fitMode = 1; // 0 = ajustar (barras), 1 = preencher (corta), 2 = esticar
+    private int fitMode = 2; // 0 = ajustar (barras), 1 = preencher (corta), 2 = esticar
     private PlayerView exoView;
     private VLCVideoLayout vlcView;
     private TextView status, titleTv, timeTv;
@@ -63,6 +63,8 @@ public class PlayerActivity extends Activity {
     private String curEngine = "";
 
     private final Handler h = new Handler(Looper.getMainLooper());
+    private long pending = -1; // posição escolhida com as setas; só aplica quando para de apertar
+    private final Runnable commitSeek = () -> { if (pending >= 0) { seekToMs(pending); pending = -1; } };
     private final Runnable hideOverlay = () -> overlay.setVisibility(View.GONE);
     private final Runnable timeout = () -> { if (!playedOnce && !finished) tryNext(); };
     private final Runnable ticker = new Runnable() {
@@ -72,8 +74,9 @@ public class PlayerActivity extends Activity {
             if (p > 0) lastPos = p;
             if (d > 0) lastDur = d;
             if (overlay.getVisibility() == View.VISIBLE) {
-                timeTv.setText(live ? "AO VIVO" : fmt(p) + " / " + fmt(d));
-                bar.setProgress(d > 0 ? (int) (p * 1000 / d) : 0);
+                long sh = pending >= 0 ? pending : p;
+                timeTv.setText(live ? "AO VIVO" : fmt(sh) + " / " + fmt(d));
+                bar.setProgress(d > 0 ? (int) (sh * 1000 / d) : 0);
             }
             h.postDelayed(this, 500);
         }
@@ -94,7 +97,7 @@ public class PlayerActivity extends Activity {
             engine = j.optString("engine", "auto");
             startMs = j.optLong("startMs", 0);
             live = j.optBoolean("live", false);
-            String f = j.optString("fit", "cover");
+            String f = j.optString("fit", "fill");
             fitMode = "contain".equals(f) ? 0 : "fill".equals(f) ? 2 : 1;
         } catch (Exception e) { finishWith(false, true); return; }
 
@@ -124,7 +127,7 @@ public class PlayerActivity extends Activity {
         status.setTextColor(Color.WHITE);
         status.setTextSize(24);
         status.setGravity(Gravity.CENTER);
-        status.setText("Carregando…");
+        status.setText("Sintonizando…");
         root.addView(status, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout ov = new LinearLayout(this);
@@ -186,6 +189,7 @@ public class PlayerActivity extends Activity {
         overlay.setVisibility(View.GONE);
 
         h.post(ticker);
+        h.post(dotsAnim);
         tryNext();
     }
 
@@ -199,7 +203,7 @@ public class PlayerActivity extends Activity {
         curEngine = c[0];
         playedOnce = false;
         seekedStart = false;
-        status.setText("Carregando…");
+        status.setText("Sintonizando…");
         status.setVisibility(View.VISIBLE);
         h.removeCallbacks(timeout);
         h.postDelayed(timeout, 25000);
@@ -209,6 +213,7 @@ public class PlayerActivity extends Activity {
     }
 
     private void onPlaying() {
+        if (!playedOnce) h.post(this::showOverlay);
         playedOnce = true;
         h.removeCallbacks(timeout);
         status.setVisibility(View.GONE);
@@ -306,6 +311,20 @@ public class PlayerActivity extends Activity {
         try { if (exo != null) exo.seekTo(t); else if (vlc != null) vlc.setTime(t); } catch (Throwable ignored) {}
     }
 
+    private void nudge(long delta) {
+        if (live) return;
+        long d = dur();
+        long base = pending >= 0 ? pending : pos();
+        long t = Math.max(0, base + delta);
+        if (d > 0) t = Math.min(t, d - 1000);
+        pending = t;
+        h.removeCallbacks(commitSeek);
+        h.postDelayed(commitSeek, 800);
+        long p = d > 0 ? t * 1000 / d : 0;
+        bar.setProgress((int) p);
+        timeTv.setText(fmt(t) + " / " + fmt(d));
+    }
+
     private void seekBy(long delta) {
         if (live) return;
         long d = dur();
@@ -331,12 +350,21 @@ public class PlayerActivity extends Activity {
         h.removeCallbacks(hideStatus);
         h.postDelayed(hideStatus, 1500);
     }
+    private int dots = 0;
+    private final Runnable dotsAnim = new Runnable() {
+        @Override public void run() {
+            if (finished || playedOnce) return;
+            dots = (dots + 1) % 4;
+            status.setText("Sintonizando" + "...".substring(0, dots));
+            h.postDelayed(this, 450);
+        }
+    };
     private final Runnable hideStatus = () -> { if (status != null) status.setVisibility(View.GONE); };
 
     private void showOverlay() {
         overlay.setVisibility(View.VISIBLE);
         h.removeCallbacks(hideOverlay);
-        h.postDelayed(hideOverlay, 4000);
+        h.postDelayed(hideOverlay, 10000);
     }
 
     private static String fmt(long ms) {
@@ -358,6 +386,9 @@ public class PlayerActivity extends Activity {
             case KeyEvent.KEYCODE_BACK: finishWith(false, false); return true;
             case KeyEvent.KEYCODE_DPAD_CENTER:
             case KeyEvent.KEYCODE_ENTER:
+                // Barra escondida: OK só mostra a barra (não pausa). Barra visível: OK pausa/continua.
+                if (overlay.getVisibility() != View.VISIBLE) showOverlay(); else { toggle(); showOverlay(); }
+                return true;
             case KeyEvent.KEYCODE_SPACE:
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE: toggle(); showOverlay(); return true;
             case KeyEvent.KEYCODE_MEDIA_PLAY:
@@ -366,12 +397,18 @@ public class PlayerActivity extends Activity {
             case KeyEvent.KEYCODE_MEDIA_PAUSE:
                 try { if (exo != null) exo.setPlayWhenReady(false); else if (vlc != null) vlc.pause(); } catch (Throwable ignored) {}
                 showOverlay(); return true;
-            case KeyEvent.KEYCODE_DPAD_LEFT: seekBy(ev.getRepeatCount() > 3 ? -30000 : -10000); showOverlay(); return true;
-            case KeyEvent.KEYCODE_DPAD_RIGHT: seekBy(ev.getRepeatCount() > 3 ? 30000 : 10000); showOverlay(); return true;
-            case KeyEvent.KEYCODE_MEDIA_REWIND: seekBy(-30000); showOverlay(); return true;
-            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD: seekBy(30000); showOverlay(); return true;
-            case KeyEvent.KEYCODE_DPAD_UP: cycleFit(); showOverlay(); return true;
-            default: showOverlay(); return true; // baixo: mostra a barra
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                if (overlay.getVisibility() != View.VISIBLE) { showOverlay(); return true; }
+                nudge(ev.getRepeatCount() > 3 ? -30000 : -10000); showOverlay(); return true;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                if (overlay.getVisibility() != View.VISIBLE) { showOverlay(); return true; }
+                nudge(ev.getRepeatCount() > 3 ? 30000 : 10000); showOverlay(); return true;
+            case KeyEvent.KEYCODE_MEDIA_REWIND: nudge(-30000); showOverlay(); return true;
+            case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD: nudge(30000); showOverlay(); return true;
+            case KeyEvent.KEYCODE_DPAD_UP: showOverlay(); return true; // cima: só mostra a barra
+            default: // baixo: barra escondida mostra; visível alterna a proporção da imagem
+                if (overlay.getVisibility() != View.VISIBLE) showOverlay(); else { cycleFit(); showOverlay(); }
+                return true;
         }
     }
 

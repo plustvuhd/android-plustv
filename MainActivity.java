@@ -55,6 +55,15 @@ public class MainActivity extends Activity {
     /** Ponte para o site: o Web Player chama PlusTVNative.play(json) para tocar com ExoPlayer/VLC embutidos. */
     private class Bridge {
         @JavascriptInterface public boolean ok() { return true; }
+        @JavascriptInterface public void showKeyboard() {
+            runOnUiThread(() -> {
+                try {
+                    web.requestFocus();
+                    android.view.inputmethod.InputMethodManager im = (android.view.inputmethod.InputMethodManager) getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                    if (im != null) im.showSoftInput(web, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                } catch (Throwable ignored) {}
+            });
+        }
         @JavascriptInterface public void play(final String json) {
             runOnUiThread(() -> {
                 Intent i = new Intent(MainActivity.this, PlayerActivity.class);
@@ -119,6 +128,39 @@ public class MainActivity extends Activity {
                     startActivity(it);
                 } catch (Exception ignored) {}
                 return true; // nunca deixa o WebView mostrar a tela preta de esquema desconhecido
+            }
+            // Vídeo http do fornecedor: o app busca direto no servidor deles (pela internet do aparelho, sem passar pelo painel)
+            // e entrega ao player da página já com a liberação de CORS. Assim o modo "web" dentro do app também usa só a hospedagem do fornecedor.
+            @Override public android.webkit.WebResourceResponse shouldInterceptRequest(WebView v, android.webkit.WebResourceRequest r) {
+                try {
+                    android.net.Uri u = r.getUrl();
+                    if (u == null || !"http".equals(u.getScheme()) || !"GET".equalsIgnoreCase(r.getMethod())) return null;
+                    HttpURLConnection c = (HttpURLConnection) new URL(u.toString()).openConnection();
+                    c.setInstanceFollowRedirects(true);
+                    c.setConnectTimeout(15000);
+                    c.setReadTimeout(30000);
+                    java.util.Map<String, String> rh = r.getRequestHeaders();
+                    if (rh != null) for (java.util.Map.Entry<String, String> e : rh.entrySet()) {
+                        String k = e.getKey();
+                        if (k == null || k.equalsIgnoreCase("Origin") || k.equalsIgnoreCase("Referer") || k.equalsIgnoreCase("Host")) continue;
+                        c.setRequestProperty(k, e.getValue());
+                    }
+                    int code = c.getResponseCode();
+                    if (code < 200 || code > 299) { c.disconnect(); return null; }
+                    String ct = c.getContentType();
+                    String mime = ct == null ? "application/octet-stream" : ct.split(";")[0].trim();
+                    java.util.HashMap<String, String> hs = new java.util.HashMap<>();
+                    for (String k : new String[]{"Content-Length", "Content-Range", "Accept-Ranges", "Content-Type"}) {
+                        String val = c.getHeaderField(k);
+                        if (val != null) hs.put(k, val);
+                    }
+                    hs.put("Access-Control-Allow-Origin", "*");
+                    hs.put("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type");
+                    String msg = c.getResponseMessage();
+                    return new android.webkit.WebResourceResponse(mime, null, code, msg == null || msg.isEmpty() ? "OK" : msg, hs, c.getInputStream());
+                } catch (Throwable t) {
+                    return null; // qualquer falha: segue o caminho normal do WebView
+                }
             }
             @Override public boolean onRenderProcessGone(WebView v, RenderProcessGoneDetail d) { recreate(); return true; }
         });
