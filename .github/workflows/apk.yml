@@ -1,6 +1,11 @@
 name: Gerar APK
 on:
   workflow_dispatch:
+    inputs:
+      emulador:
+        description: 'Incluir suporte ao emulador do PC (x86_64)? Deixa o APK bem maior. Para TV/celular/box deixe false.'
+        type: boolean
+        default: false
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,7 +32,12 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
-      - run: gradle assembleRelease --no-daemon
+      - name: Gerar APK
+        run: |
+          ABIS=armeabi-v7a,arm64-v8a
+          if [ "${{ inputs.emulador }}" = "true" ]; then ABIS=$ABIS,x86_64,x86; fi
+          echo "Arquiteturas: $ABIS"
+          gradle assembleRelease --no-daemon -Pabis=$ABIS
       - uses: actions/upload-artifact@v4
         with:
           name: PlusTV-apk
